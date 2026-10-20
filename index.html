@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>CCTV Camera Survey</title>
+<style>
+  :root { --bg:#f3f5f9; --card:#fff; --ink:#1a2233; --muted:#5d6779; --line:#d9dee8;
+          --brand:#1f4fd1; --ok:#14804a; --warn:#b26a00; --err:#c62828; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:#0f2a6b; color:#fff; padding:18px 16px 16px; }
+  header h1 { margin:0; font-size:20px; }
+  header p { margin:4px 0 0; font-size:13px; opacity:.85; }
+  main { max-width:560px; margin:0 auto; padding:12px 12px 40px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
+  label { display:block; font-weight:600; font-size:14px; margin:0 0 6px; }
+  .req::after { content:" *"; color:var(--err); }
+  .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+  input[type=text] { width:100%; font-size:16px; padding:11px 12px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); }
+  input:focus { outline:2px solid var(--brand); border-color:transparent; }
+  button { font-size:16px; font-weight:600; border:0; border-radius:10px; padding:14px; width:100%; cursor:pointer; }
+  .primary { background:var(--brand); color:#fff; }
+  .submit { background:var(--ok); color:#fff; }
+  .ghost { background:var(--bg); color:var(--ink); }
+  button:disabled { opacity:.55; cursor:default; }
+  .loc { margin-top:10px; padding:10px 12px; border-radius:8px; font-size:14px; display:none; }
+  .loc.ok { display:block; background:#e7f5ec; color:var(--ok); }
+  .loc.warn { display:block; background:#fff4e0; color:var(--warn); }
+  .loc.err { display:block; background:#fdecea; color:var(--err); }
+  .loc a { color:inherit; }
+  #latlngBox { display:none; margin-top:12px; }
+  #manualBtn { display:none; background:#fff; color:var(--brand); border:1.5px solid var(--brand); margin-top:10px; }
+  .photoBtn { display:block; text-align:center; background:var(--brand); color:#fff; font-weight:600; font-size:16px; padding:14px; border-radius:10px; cursor:pointer; }
+  #photo { position:absolute; width:1px; height:1px; opacity:0; }
+  #preview { display:none; width:100%; max-height:300px; object-fit:cover; border-radius:8px; margin-top:10px; }
+  .msg { padding:12px; border-radius:8px; margin-bottom:12px; display:none; font-size:14px; }
+  .msg.ok { display:block; background:#e7f5ec; color:var(--ok); }
+  .msg.err { display:block; background:#fdecea; color:var(--err); }
+  .modal { position:fixed; inset:0; background:rgba(10,20,40,.55); display:none; align-items:flex-end; justify-content:center; z-index:10; }
+  .modal.open { display:flex; }
+  .sheet { background:#fff; width:100%; max-width:560px; border-radius:16px 16px 0 0; padding:18px 16px 20px; max-height:90vh; overflow:auto; }
+  .sheet h3 { margin:0 0 10px; font-size:18px; }
+  .sheet ol { padding-left:20px; margin:0 0 14px; font-size:15px; line-height:1.5; }
+  .sheet li { margin-bottom:8px; }
+  .eg { background:var(--bg); border-radius:8px; padding:6px 10px; font-family:monospace; font-size:15px; display:inline-block; }
+  .row { display:flex; gap:10px; }
+  .row button { flex:1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CCTV Camera Survey</h1>
+  <p>Stand next to the camera, get location, take a photo, submit.</p>
+</header>
+<main>
+  <div id="msg" class="msg"></div>
+  <form id="f" novalidate>
+
+    <div class="card">
+      <h2>1. Location</h2>
+      <button type="button" class="primary" id="gpsBtn">📍 Get Location</button>
+      <div id="locBox" class="loc"></div>
+      <button type="button" id="manualBtn">✍️ Add location manually</button>
+      <div id="latlngBox">
+        <label class="req" for="latlng">Latitude, Longitude</label>
+        <input type="text" id="latlng" inputmode="decimal" placeholder="e.g. 30.7333, 76.7794" autocomplete="off">
+        <div class="hint" id="latlngHint"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2. Photo</h2>
+      <label class="photoBtn" for="photo" id="photoLabel">📷 Upload Camera Photo</label>
+      <input type="file" id="photo" accept="image/*">
+      <img id="preview" alt="Camera photo preview">
+    </div>
+
+    <button type="submit" class="submit" id="submitBtn">Submit Camera</button>
+  </form>
+</main>
+
+<div class="modal" id="manualModal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+  <div class="sheet">
+    <h3 id="mTitle">How to get Latitude, Longitude</h3>
+    <ol>
+      <li>Stand next to the camera and open the <b>Google Maps</b> app.</li>
+      <li>Tap the <b>blue location button</b> so the map shows where you are.</li>
+      <li><b>Long-press on your blue dot</b>. A red pin drops.</li>
+      <li>The coordinates appear at the top (search bar) or in the bottom panel. Tap them to <b>copy</b>.</li>
+      <li>Come back here and <b>paste</b> into the Latitude, Longitude box.</li>
+    </ol>
+    <p class="hint" style="margin:0 0 14px">It must look like: <span class="eg">30.7333, 76.7794</span></p>
+    <div class="row">
+      <button type="button" class="ghost" id="mCancel">Cancel</button>
+      <button type="button" class="primary" id="mOk">Enter manually</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Survey backend (Google Apps Script). Accepts new entries only; it cannot read or list any data.
+  var API_URL = 'https://script.google.com/macros/s/AKfycbxb4wtWGsxrwZf6AyxlrBdBfsjoIbvik8G9SA_U5fM30XKxpGi89U-__FgeDTXsaeN6YQ/exec';
+  var loc = null, photoData = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  // Watches GPS for up to 20 s, keeps the most accurate reading, stops early at <=20 m.
+  $('gpsBtn').onclick = function () {
+    if (!navigator.geolocation) { onErr({ code: 2 }); return; }
+    this.disabled = true; this.textContent = 'Getting location…';
+    $('manualBtn').style.display = 'none';
+    showLoc('warn', 'Waiting for GPS. Keep the phone outdoors, near the camera.');
+    var best = null, done = false, watchId;
+    function finish() {
+      if (done) return; done = true;
+      navigator.geolocation.clearWatch(watchId);
+      if (best) { useFix(best); return; }
+      navigator.geolocation.getCurrentPosition(useFix, onErr, { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
+    }
+    watchId = navigator.geolocation.watchPosition(function (p) {
+      if (!best || p.coords.accuracy < best.coords.accuracy) best = p;
+      showLoc('warn', 'Improving accuracy… currently ±' + Math.round(best.coords.accuracy) + ' m');
+      if (best.coords.accuracy <= 20) finish();
+    }, function (e) { if (e.code === 1) { done = true; navigator.geolocation.clearWatch(watchId); onErr(e); } },
+       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    setTimeout(finish, 20000);
+  };
+  function useFix(p) {
+    var lat = p.coords.latitude.toFixed(6), lng = p.coords.longitude.toFixed(6), acc = Math.round(p.coords.accuracy);
+    loc = { value: lat + ', ' + lng, accuracy: p.coords.accuracy };
+    var link = ' · <a target="_blank" href="https://www.google.com/maps?q=' + lat + ',' + lng + '">check on map</a>';
+    if (acc <= 30) showLoc('ok', 'Location captured (±' + acc + ' m)' + link);
+    else showLoc('warn', 'Captured, but accuracy is low (±' + acc + ' m). Tap Recapture outdoors for a better fix.' + link);
+    showField(loc.value, 'Captured by GPS. You can correct it if needed.');
+    resetBtn('📍 Recapture Location');
+  }
+  function onErr(e) {
+    var why = e.code === 1 ? 'Location permission is blocked on this phone.' : 'Could not get location.';
+    showLoc('err', why + ' Please add the location manually.');
+    $('manualBtn').style.display = 'block';
+    resetBtn('📍 Try Again');
+  }
+  function showField(v, hint) { $('latlngBox').style.display = 'block'; $('latlng').value = v; $('latlngHint').textContent = hint; }
+  function resetBtn(t) { $('gpsBtn').disabled = false; $('gpsBtn').textContent = t; }
+  function showLoc(cls, html) { var b = $('locBox'); b.className = 'loc ' + cls; b.innerHTML = html; }
+
+  // Manual entry: instruction box first, then an empty field to paste into.
+  $('manualBtn').onclick = function () { $('manualModal').classList.add('open'); };
+  $('mCancel').onclick = function () { $('manualModal').classList.remove('open'); };
+  $('manualModal').onclick = function (e) { if (e.target === this) this.classList.remove('open'); };
+  $('mOk').onclick = function () {
+    $('manualModal').classList.remove('open'); loc = null;
+    showField('', 'Paste from Google Maps, e.g. 30.7333, 76.7794'); $('latlng').focus();
+  };
+
+  // Compress photo on the phone: max 1600 px, JPEG ~75%.
+  $('photo').onchange = function () {
+    var file = this.files[0]; photoData = null;
+    if (!file) { $('preview').style.display = 'none'; return; }
+    var img = new Image();
+    img.onload = function () {
+      var s = Math.min(1, 1600 / Math.max(img.width, img.height));
+      var c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      photoData = c.toDataURL('image/jpeg', 0.75);
+      $('preview').src = photoData; $('preview').style.display = 'block';
+      $('photoLabel').textContent = '📷 Change Photo';
+      URL.revokeObjectURL(img.src);
+    };
+    img.src = URL.createObjectURL(file);
+  };
+
+  function fail(m, el) { var b = $('msg'); b.className = 'msg err'; b.textContent = m; window.scrollTo(0, 0); if (el) el.focus(); return false; }
+
+  $('f').onsubmit = function (ev) {
+    ev.preventDefault();
+    var raw = $('latlng').value.trim();
+    var m = raw.match(/^(-?\d{1,2}\.\d{4,})\s*,\s*(-?\d{1,3}\.\d{4,})$/);
+    if (!raw) return fail('Get the camera location first, or add it manually.', $('gpsBtn'));
+    if (!m) return fail('Location must look like 30.7333, 76.7794', $('latlng'));
+    if (!photoData) return fail('Upload a photo of the camera.');
+    var fromGps = loc && raw === loc.value;
+    var data = { lat: m[1], lng: m[2], accuracy: fromGps ? loc.accuracy : '', source: fromGps ? 'GPS' : 'Manual', photo: photoData };
+
+    var btn = $('submitBtn'); btn.disabled = true; btn.textContent = 'Saving…';
+    function done() { btn.disabled = false; btn.textContent = 'Submit Camera'; }
+    // text/plain keeps this a "simple" request, so no CORS preflight is needed.
+    fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(data) })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Could not save.');
+        var b = $('msg'); b.className = 'msg ok'; b.textContent = 'Saved ✓ Camera ID ' + res.id + '. Ready for the next camera.';
+        resetForm(); done(); window.scrollTo(0, 0);
+      })
+      .catch(function (e) {
+        fail((e && e.message && e.message !== 'Failed to fetch' ? e.message : 'Could not save.') + ' If it keeps failing, check internet.');
+        done();
+      });
+  };
+
+  function resetForm() {
+    $('f').reset(); loc = null; photoData = null;
+    $('preview').style.display = 'none'; $('photoLabel').textContent = '📷 Upload Camera Photo';
+    $('locBox').className = 'loc'; $('latlngBox').style.display = 'none'; $('manualBtn').style.display = 'none';
+    resetBtn('📍 Get Location');
+  }
+</script>
+</body>
+</html>
