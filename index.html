@@ -37,6 +37,13 @@
   .photoBtn { display:block; text-align:center; background:var(--brand); color:#fff; font-weight:600; font-size:16px; padding:14px; border-radius:10px; cursor:pointer; }
   .photoInput { position:absolute; width:1px; height:1px; opacity:0; }
   .galleryBtn { display:block; text-align:center; background:#fff; color:var(--brand); border:1.5px solid var(--brand); font-weight:600; font-size:15px; padding:11px; border-radius:10px; cursor:pointer; margin-top:10px; }
+  #camView { position:fixed; inset:0; height:100vh; height:100dvh; background:#000; z-index:20; display:none; flex-direction:column; }
+  #camView.open { display:flex; }
+  #camVideo { flex:1 1 0; min-height:0; width:100%; height:0; object-fit:cover; background:#000; }
+  .camBar { display:flex; align-items:center; justify-content:space-between; padding:16px 20px 28px; background:#000; }
+  .camBar .ghost { width:auto; padding:10px 16px; background:#222; color:#fff; }
+  .camSpacer { width:80px; }
+  #camShot { width:72px; height:72px; border-radius:50%; background:#fff; border:5px solid #888; padding:0; }
   #preview { display:none; width:100%; max-height:300px; object-fit:cover; border-radius:8px; margin-top:10px; }
   .msg { padding:12px; border-radius:8px; margin-bottom:12px; display:none; font-size:14px; }
   .msg.ok { display:block; background:#e7f5ec; color:var(--ok); }
@@ -111,7 +118,8 @@
 
     <div class="card">
       <h2>3. Photo</h2>
-      <label class="photoBtn" for="photoCam" id="photoLabel">📷 Take Photo</label>
+      <button type="button" class="primary" id="camBtn">📷 Take Photo</button>
+      <label class="galleryBtn" for="photoCam" id="camFallback" style="display:none">📷 Open phone camera</label>
       <input type="file" id="photoCam" class="photoInput" accept="image/*" capture="environment">
       <label class="galleryBtn" for="photoGal">🖼️ Choose from Gallery</label>
       <input type="file" id="photoGal" class="photoInput" accept="image/*">
@@ -137,6 +145,15 @@
       <button type="button" class="ghost" id="mCancel">Cancel</button>
       <button type="button" class="primary" id="mOk">Enter manually</button>
     </div>
+  </div>
+</div>
+
+<div id="camView" role="dialog" aria-modal="true" aria-label="Camera">
+  <video id="camVideo" autoplay playsinline muted></video>
+  <div class="camBar">
+    <button type="button" class="ghost" id="camCancel">Cancel</button>
+    <button type="button" id="camShot" aria-label="Capture photo"></button>
+    <span class="camSpacer"></span>
   </div>
 </div>
 
@@ -179,6 +196,7 @@
     else showLoc('warn', 'Captured, but accuracy is low (±' + acc + ' m). Tap Recapture outdoors for a better fix.' + link);
     showField(loc.value, 'Captured by GPS. You can correct it if needed.');
     resetBtn('📍 Recapture Location');
+    saveDraft();
   }
   function onErr(e) {
     var why = e.code === 1 ? 'Location permission is blocked on this phone.' : 'Could not get location.';
@@ -199,22 +217,80 @@
     showField('', 'Paste from Google Maps, e.g. 30.7333, 76.7794'); $('latlng').focus();
   };
 
-  // Compress photo on the phone: max 1600 px, JPEG ~75%.
+  // ---- Draft: keeps location + photo on this phone so a page reload doesn't lose them ----
+  var DRAFT_MAX_AGE = 2 * 60 * 60 * 1000; // 2 hours
+  function saveDraft() {
+    try {
+      localStorage.setItem('draft', JSON.stringify({ t: Date.now(), latlng: $('latlng').value, loc: loc,
+        latlngShown: $('latlngBox').style.display === 'block' }));
+      if (photoData) localStorage.setItem('draftPhoto', photoData); else localStorage.removeItem('draftPhoto');
+    } catch (e) {}
+  }
+  function clearDraft() { try { localStorage.removeItem('draft'); localStorage.removeItem('draftPhoto'); } catch (e) {} }
+  function restoreDraft() {
+    try {
+      var d = JSON.parse(localStorage.getItem('draft') || 'null');
+      if (!d || Date.now() - d.t > DRAFT_MAX_AGE) { clearDraft(); return; }
+      if (d.latlngShown && d.latlng) {
+        loc = d.loc; showField(d.latlng, loc ? 'Captured by GPS. You can correct it if needed.' : 'Entered manually.');
+        showLoc('ok', 'Location restored.'); resetBtn('📍 Recapture Location');
+      }
+      var p = localStorage.getItem('draftPhoto');
+      if (p) setPhoto(p);
+    } catch (e) {}
+  }
+  $('latlng').addEventListener('input', saveDraft);
+
+  function setPhoto(data) {
+    photoData = data;
+    $('preview').src = data; $('preview').style.display = 'block';
+    $('camBtn').textContent = '📷 Retake Photo';
+    $('msg').className = 'msg';
+    saveDraft();
+  }
+
+  // Resize to max 1600 px and compress to JPEG ~75% (about 300 KB).
+  function compress(source, w, h) {
+    var s = Math.min(1, 1600 / Math.max(w, h));
+    var c = document.createElement('canvas');
+    c.width = Math.round(w * s); c.height = Math.round(h * s);
+    c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.75);
+  }
+
+  // ---- In-page camera: the browser never leaves the page, so the phone can't close it ----
+  var stream = null;
+  $('camBtn').onclick = function () {
+    saveDraft();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { useFallback(); return; }
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      .then(function (s) {
+        stream = s; $('camVideo').srcObject = s; $('camView').classList.add('open');
+      })
+      .catch(function () { useFallback(); });
+  };
+  function useFallback() {
+    $('camFallback').style.display = 'block';
+    fail('In-app camera is not available on this phone. Tap "Open phone camera" below.');
+  }
+  function closeCam() {
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    $('camVideo').srcObject = null; $('camView').classList.remove('open');
+  }
+  $('camCancel').onclick = closeCam;
+  $('camShot').onclick = function () {
+    var v = $('camVideo');
+    if (!v.videoWidth) return;
+    var data = compress(v, v.videoWidth, v.videoHeight);
+    closeCam(); setPhoto(data);
+  };
+
+  // ---- Phone camera app / gallery ----
   function onPhoto() {
     var file = this.files[0]; this.value = '';
     if (!file) return;
     var img = new Image();
-    img.onload = function () {
-      var s = Math.min(1, 1600 / Math.max(img.width, img.height));
-      var c = document.createElement('canvas');
-      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      photoData = c.toDataURL('image/jpeg', 0.75);
-      $('preview').src = photoData; $('preview').style.display = 'block';
-      $('photoLabel').textContent = '📷 Retake Photo';
-      $('msg').className = 'msg';
-      URL.revokeObjectURL(img.src);
-    };
+    img.onload = function () { var d = compress(img, img.width, img.height); URL.revokeObjectURL(img.src); setPhoto(d); };
     img.onerror = function () {
       URL.revokeObjectURL(img.src);
       fail('This photo could not be opened. Please tap "Take Photo" and take a new one.');
@@ -223,6 +299,8 @@
   }
   $('photoCam').onchange = onPhoto;
   $('photoGal').onchange = onPhoto;
+  $('photoGal').onclick = saveDraft;
+  $('photoCam').onclick = saveDraft;
 
   function fail(m, el) { var b = $('msg'); b.className = 'msg err'; b.textContent = m; window.scrollTo(0, 0); if (el) el.focus(); return false; }
 
@@ -234,7 +312,7 @@
     var m = raw.match(/^(-?\d{1,2}\.\d{4,})\s*,\s*(-?\d{1,3}\.\d{4,})$/);
     if (!raw) return fail('Get the camera location first, or add it manually.', $('gpsBtn'));
     if (!m) return fail('Location must look like 30.7333, 76.7794', $('latlng'));
-    if (!photoData) return fail('Take a photo of the camera.');
+    if (!photoData) return fail('Take a photo of the camera.', $('camBtn'));
     var fromGps = loc && raw === loc.value;
     var data = { thana: thana, lat: m[1], lng: m[2], accuracy: fromGps ? loc.accuracy : '', source: fromGps ? 'GPS' : 'Manual', photo: photoData };
 
@@ -245,7 +323,7 @@
       .then(function (res) {
         if (!res || !res.ok) throw new Error(res && res.error ? res.error : 'Could not save.');
         var b = $('msg'); b.className = 'msg ok'; b.textContent = 'Saved ✓ Camera ID ' + res.id + '. Ready for the next camera.';
-        resetForm(); done(); window.scrollTo(0, 0);
+        clearDraft(); resetForm(); done(); window.scrollTo(0, 0);
       })
       .catch(function (e) {
         fail((e && e.message && e.message !== 'Failed to fetch' ? e.message : 'Could not save.') + ' If it keeps failing, check internet.');
@@ -256,10 +334,11 @@
   function resetForm() {
     var keepThana = $('thana').value;
     $('f').reset(); $('thana').value = keepThana; loc = null; photoData = null;
-    $('preview').style.display = 'none'; $('photoLabel').textContent = '📷 Take Photo';
+    $('preview').style.display = 'none'; $('camBtn').textContent = '📷 Take Photo'; $('camFallback').style.display = 'none';
     $('locBox').className = 'loc'; $('latlngBox').style.display = 'none'; $('manualBtn').style.display = 'none';
     resetBtn('📍 Get Location');
   }
+  restoreDraft();
 </script>
 </body>
 </html>
